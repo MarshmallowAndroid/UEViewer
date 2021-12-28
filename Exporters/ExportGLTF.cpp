@@ -996,7 +996,7 @@ static void ExportMeshLod(GLTFExportContext& Context, const CBaseMeshLod& Lod, c
 void ApplyMorph(
 	const CSkeletalMesh* Mesh,
 	int MorphIndex, int LodIndex,
-	CSkelMeshVertex* MorphedVerts)
+	CSkelMeshVertex** MorphedVertsOut)
 {
 	// From CSkelMeshInstance
 	void* DataBlock;
@@ -1039,7 +1039,7 @@ void ApplyMorph(
 	DataBlock = appMalloc(DataSize, 16);
 	BoneData = (CMeshBoneData*)DataBlock;
 	Skinned = (CSkinVert*)(BoneData + NumBones);
-	MorphedVerts = Mesh->Morphs.Num() ? (CSkelMeshVertex*)(Skinned + NumVerts) : NULL;
+	CSkelMeshVertex* MorphedVerts = Mesh->Morphs.Num() ? (CSkelMeshVertex*)(Skinned + NumVerts) : NULL;
 
 	// From CSkelMeshInstance::BuildMorphVerts()
 	const CSkelMeshLod& Lod = Mesh->Lods[LodIndex];
@@ -1064,6 +1064,8 @@ void ApplyMorph(
 		Tangent.NormalizeFast();
 		Pack(V.Tangent, Tangent);
 	}
+
+	*MorphedVertsOut = MorphedVerts;
 }
 
 void ExportSkeletalMeshGLTF(const CSkeletalMesh* Mesh)
@@ -1109,7 +1111,7 @@ void ExportSkeletalMeshGLTF(const CSkeletalMesh* Mesh)
 	for (int Morph = 0; Morph < Mesh->Morphs.Num(); Morph++)
 	{
 		CSkelMeshVertex* MorphedVerts;
-		ApplyMorph(Mesh, Morph, 0, MorphedVerts);
+		ApplyMorph(Mesh, Morph, 0, &MorphedVerts);
 
 		char suffix[32];
 		suffix[0] = 0;
