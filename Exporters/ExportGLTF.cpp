@@ -1125,7 +1125,7 @@ void ExportSkeletalMeshGLTF(const CSkeletalMesh* Mesh)
 		{
 			GLTFExportContext Context;
 			Context.MeshName = meshName;
-			Context.SkelMesh = Mesh; // Just export the morphed mesh.
+			Context.SkelMesh = Mesh;
 
 			FArchive* Ar2 = CreateExportArchive(OriginalMesh, EFileArchiveOptions::Default, "%s.bin", meshName);
 			assert(Ar2);
