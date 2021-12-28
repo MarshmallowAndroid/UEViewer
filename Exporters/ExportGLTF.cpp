@@ -7,6 +7,8 @@
 #include "Mesh/SkeletalMesh.h"
 #include "Mesh/StaticMesh.h"
 
+#include "../MeshInstance/MeshInstance.h"
+
 #include "UnrealMesh/UnMathTools.h"
 
 #include "Exporters.h"
@@ -989,6 +991,81 @@ static void ExportMeshLod(GLTFExportContext& Context, const CBaseMeshLod& Lod, c
 	unguard;
 }
 
+// Derived from a squished down version of CSkelMeshInstance::BuildMorphVerts().
+// Comments truncated to trim down on size.
+void ApplyMorph(
+	const CSkeletalMesh* Mesh,
+	int MorphIndex, int LodIndex,
+	CSkelMeshVertex* MorphedVerts)
+{
+	// From CSkelMeshInstance
+	void* DataBlock;
+	struct CMeshBoneData
+	{
+		int			AnimBoneIndex;
+		CCoords		RefCoords;
+		CCoords		RefCoordsInv;
+		int			SubtreeSize;
+		float		Scale;
+#if !BAKE_BONE_SCALES
+		CVec3		Scale3D;
+		CVec3		AccumulatedChildScale;
+#endif
+		int			FirstChannel;
+		CCoords		Coords;
+		CCoords		Transform;
+#if USE_SSE
+		CCoords4	Transform4;
+#endif
+		CVec3		Pos;
+		CQuat		Quat;
+	} *BoneData;
+	struct CSkinVert
+	{
+		CVecT		Position;
+		CVec4		Normal;
+		CVecT		Tangent;
+	} *Skinned;
+
+	// From CSkelMeshInstance::SetMesh()
+	int NumBones = Mesh->RefSkeleton.Num();
+	int NumVerts = 0;
+	for (int i = 0; i < Mesh->Lods.Num(); i++)
+		if (Mesh->Lods[i].NumVerts > NumVerts)
+			NumVerts = Mesh->Lods[i].NumVerts;
+
+	int NumMorphVerts = Mesh->Morphs.Num() ? NumVerts : 0;
+	int DataSize = sizeof(CMeshBoneData) * NumBones + sizeof(CSkinVert) * NumVerts + sizeof(CSkelMeshVertex) * NumMorphVerts;
+	DataBlock = appMalloc(DataSize, 16);
+	BoneData = (CMeshBoneData*)DataBlock;
+	Skinned = (CSkinVert*)(BoneData + NumBones);
+	MorphedVerts = Mesh->Morphs.Num() ? (CSkelMeshVertex*)(Skinned + NumVerts) : NULL;
+
+	// From CSkelMeshInstance::BuildMorphVerts()
+	const CSkelMeshLod& Lod = Mesh->Lods[LodIndex];
+	const TArray<CMorphVertex>& Deltas = Mesh->Morphs[MorphIndex]->Lods[LodIndex].Vertices;
+
+	memcpy(MorphedVerts, Lod.Verts, Lod.NumVerts * sizeof(CSkelMeshVertex));
+
+	for (const CMorphVertex& Delta : Deltas)
+	{
+		CSkelMeshVertex& V = MorphedVerts[Delta.VertexIndex];
+		VectorAdd(V.Position, Delta.PositionDelta, V.Position);
+		CVec3 Normal;
+		int8 W = V.Normal.GetW();
+		Unpack(Normal, V.Normal);
+		VectorAdd(Normal, Delta.NormalDelta, Normal);
+		Pack(V.Normal, Normal);
+		V.Normal.SetW(W);
+		CVec3 Tangent;
+		Unpack(Tangent, V.Tangent);
+		float shift = dot(Normal, Tangent);
+		VectorMA(Tangent, -shift, Normal);
+		Tangent.NormalizeFast();
+		Pack(V.Tangent, Tangent);
+	}
+}
+
 void ExportSkeletalMeshGLTF(const CSkeletalMesh* Mesh)
 {
 	guard(ExportSkeletalMeshGLTF);
@@ -1022,6 +1099,37 @@ void ExportSkeletalMeshGLTF(const CSkeletalMesh* Mesh)
 			FArchive* Ar2 = CreateExportArchive(OriginalMesh, EFileArchiveOptions::Default, "%s.bin", meshName);
 			assert(Ar2);
 			ExportMeshLod(Context, Mesh->Lods[Lod], Mesh->Lods[Lod].Verts, *Ar, *Ar2);
+			delete Ar;
+			delete Ar2;
+		}
+	}
+	
+	// Export morphs with the morph name suffixed to the mesh name.
+	// Only the first LOD for now, but can be easily changed to work with multiple LODs.
+	for (int Morph = 0; Morph < Mesh->Morphs.Num(); Morph++)
+	{
+		CSkelMeshVertex* MorphedVerts;
+		ApplyMorph(Mesh, Morph, 0, MorphedVerts);
+
+		char suffix[32];
+		suffix[0] = 0;
+		if (Morph >= 0)
+		{
+			appSprintf(ARRAY_ARG(suffix), "_%s", Mesh->Morphs[Morph]->Name.Detach());
+		}
+		char meshName[256];
+		appSprintf(ARRAY_ARG(meshName), "%s%s", OriginalMesh->Name, suffix);
+
+		FArchive* Ar = CreateExportArchive(OriginalMesh, EFileArchiveOptions::TextFile, "%s.gltf", meshName);
+		if (Ar)
+		{
+			GLTFExportContext Context;
+			Context.MeshName = meshName;
+			Context.SkelMesh = Mesh; // Just export the morphed mesh.
+
+			FArchive* Ar2 = CreateExportArchive(OriginalMesh, EFileArchiveOptions::Default, "%s.bin", meshName);
+			assert(Ar2);
+			ExportMeshLod(Context, Mesh->Lods[0], MorphedVerts, *Ar, *Ar2);
 			delete Ar;
 			delete Ar2;
 		}
