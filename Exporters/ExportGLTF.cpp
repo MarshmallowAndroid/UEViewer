@@ -494,7 +494,7 @@ static void ExportSkinData(GLTFExportContext& Context, const CSkelMeshLod& Lod, 
 	Ar.Printf(
 		"  \"nodes\" : [\n"
 		"    {\n"
-		"      \"name\" : \"%s\",\n"
+		"      \"name\" : \"%s_skel\",\n"
 		"      \"mesh\" : 0,\n"
 		"      \"skin\" : 0,\n"
 		"      \"children\" : [ 1 ]\n"
@@ -1113,23 +1113,21 @@ void ExportSkeletalMeshGLTF(const CSkeletalMesh* Mesh)
 		CSkelMeshVertex* MorphedVerts;
 		ApplyMorph(Mesh, Morph, 0, &MorphedVerts);
 
-		char suffix[32];
-		suffix[0] = 0;
+		char morphName[32];
+		morphName[0] = 0;
 		if (Morph >= 0)
 		{
-			appSprintf(ARRAY_ARG(suffix), "_%s", Mesh->Morphs[Morph]->Name.Detach());
+			appSprintf(ARRAY_ARG(morphName), "%s", Mesh->Morphs[Morph]->Name.Detach());
 		}
-		char meshName[256];
-		appSprintf(ARRAY_ARG(meshName), "%s%s", OriginalMesh->Name, suffix);
 
-		FArchive* Ar = CreateExportArchive(OriginalMesh, EFileArchiveOptions::TextFile, "%s.gltf", meshName);
+		FArchive* Ar = CreateExportArchive(OriginalMesh, EFileArchiveOptions::TextFile, "%s_Morphs/%s.gltf", OriginalMesh->Name, morphName);
 		if (Ar)
 		{
 			GLTFExportContext Context;
-			Context.MeshName = meshName;
+			Context.MeshName = morphName;
 			Context.SkelMesh = Mesh;
 
-			FArchive* Ar2 = CreateExportArchive(OriginalMesh, EFileArchiveOptions::Default, "%s.bin", meshName);
+			FArchive* Ar2 = CreateExportArchive(OriginalMesh, EFileArchiveOptions::Default, "%s_Morphs/%s.bin", OriginalMesh->Name, morphName);
 			assert(Ar2);
 			ExportMeshLod(Context, Mesh->Lods[0], MorphedVerts, *Ar, *Ar2);
 			delete Ar;
@@ -1152,7 +1150,6 @@ void ExportStaticMeshGLTF(const CStaticMesh* Mesh)
 	}
 
 	int MaxLod = (GExportLods) ? Mesh->Lods.Num() : 1;
-	for (int Lod = 0; Lod < MaxLod; Lod++)
 	for (int Lod = 0; Lod < MaxLod; Lod++)
 	{
 		char suffix[32];
